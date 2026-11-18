@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#FFF4EA">
+<title>혼자선 못 넘는 벽 | 함께온기금 미니게임</title>
+<!--
+  함께온기금 미니게임 「혼자선 못 넘는 벽」 프로토타입 v0.2 (2026 함께온기금 크루)
+
+  - 파일 하나로 동작합니다. 외부 라이브러리·폰트·이미지 없음. 개인정보·점수 저장 없음.
+  - 휴대폰에서 열거나 iframe으로 넣으면 주어진 화면을 꽉 채웁니다. PC에서 단독으로 열면 16:9 카드로 보입니다.
+  - 수정 위치
+      · 신청 링크, 속도, 장애물 이름, 문구 노출 시간 → 아래 <script>의 CONFIG
+      · 결과 화면 문구 → #ovResult 안의 HTML
+  - [확인 필요] 금리 표기: 공고 본문 "연 4% 이내" / 메타 설명 "연 2%대"가 서로 다름 → 기관 확인 후 #rate 수정
+
+  홈페이지 삽입 예시 (파일을 올린 주소로 src만 바꾸면 됩니다)
+  <style>
+    .hwf-game{width:100%;max-width:960px;margin:0 auto;aspect-ratio:16/9}
+    @media (max-width:640px){.hwf-game{aspect-ratio:auto;height:80vh}}
+    .hwf-game iframe{width:100%;height:100%;border:0;display:block;border-radius:12px}
+  </style>
+  <div class="hwf-game">
+    <iframe src="https://(호스팅 주소)/index.html" title="함께온기금 미니게임: 혼자선 못 넘는 벽" loading="lazy"></iframe>
+  </div>
+-->
+<style>
+  :root{--warm:#FF7A45;--warm-d:#E35F2C;--ink:#2B2B33;--sub:#5E5E6B;--paper:#FFF7F0;--line:#F1D6C4;--red:#E5484D}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{display:flex;align-items:center;justify-content:center;padding:8px;background:#fff;
+    font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard","Noto Sans KR","Malgun Gothic",sans-serif;
+    color:var(--ink);-webkit-tap-highlight-color:transparent;word-break:keep-all;-webkit-text-size-adjust:100%}
+  #game{position:relative;width:min(100%,960px,calc((100vh - 16px) * 16 / 9));aspect-ratio:16/9;border-radius:16px;overflow:hidden;
+    background:var(--paper);box-shadow:0 6px 24px rgba(80,40,20,.10);container-type:size;user-select:none;-webkit-user-select:none}
+  /* 휴대폰·iframe: 화면 꽉 채우기 */
+  body.full{padding:0;background:var(--paper);position:fixed;inset:0;overflow:hidden;overscroll-behavior:none}
+  body.full #game{width:100%;height:100%;aspect-ratio:auto;border-radius:0;box-shadow:none}
+  canvas{display:block;width:100%;height:100%;touch-action:none}
+
+  .overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
+    gap:clamp(6px,min(1.6cqw,2.8cqh),16px);padding:5%;background:rgba(255,247,240,.88);opacity:1;visibility:visible;transition:opacity .25s ease}
+  .overlay.hidden{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .25s ease,visibility 0s .25s}
+  #ovFail{background:rgba(255,247,240,.80)}
+
+  .f-xl{font-size:clamp(24px,min(6.4cqw,11cqh),48px);font-weight:800;letter-spacing:-.02em;line-height:1.2}
+  .f-l{font-size:clamp(19px,min(4.4cqw,7.6cqh),34px);font-weight:800;letter-spacing:-.02em;line-height:1.25}
+  .f-m{font-size:clamp(14px,min(2.4cqw,4.2cqh),19px);line-height:1.5;color:var(--sub)}
+  .kicker{font-size:clamp(12px,min(2cqw,3.6cqh),15px);font-weight:800;color:var(--warm-d);letter-spacing:.02em}
+  .kicker.red{color:var(--red)}
+  .strong{color:var(--ink);font-weight:800}
+  .key{display:inline-block;padding:1px 8px;margin:0 2px;border-radius:6px;background:#fff;border:1px solid var(--line);font-weight:800;color:var(--ink)}
+
+  .btn{appearance:none;border:0;cursor:pointer;font:inherit;font-weight:800;font-size:clamp(15px,min(2.4cqw,4.4cqh),19px);
+    padding:.75em 1.5em;border-radius:999px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:.3em;
+    transition:transform .1s,background .2s}
+  .btn:active{transform:scale(.97)}
+  .btn.primary{background:var(--warm);color:#fff;box-shadow:0 4px 0 var(--warm-d)}
+  .btn.primary:hover{background:#ff8a5b}
+  .btn.ghost{background:#fff;color:var(--ink);border:1.5px solid var(--line)}
+  .btn:focus{outline:none}
+  .btn:focus-visible{outline:3px solid rgba(43,43,51,.45);outline-offset:3px}
+  .credit{position:absolute;bottom:3%;left:0;right:0;font-size:clamp(10px,min(1.5cqw,2.6cqh),12px);color:#a08878}
+
+  .card{background:#fff;border-radius:16px;padding:clamp(14px,min(3cqw,4.5cqh),26px);width:min(100%,600px);text-align:left;
+    box-shadow:0 8px 30px rgba(80,40,20,.12);display:flex;flex-direction:column;gap:clamp(6px,min(1.2cqw,2cqh),12px)}
+  .card .f-l{font-size:clamp(18px,min(3.8cqw,6.6cqh),30px)}
+  .desc{font-size:clamp(13px,min(2.2cqw,3.9cqh),17px);line-height:1.5;color:var(--sub)}
+  .desc b{color:var(--ink)}
+  .rows{display:grid;gap:clamp(4px,min(.8cqw,1.4cqh),8px);padding:clamp(8px,min(1.4cqw,2.4cqh),12px) 0;border-top:1px solid #F4E4D8;border-bottom:1px solid #F4E4D8}
+  .rows div{display:grid;grid-template-columns:2.8em 1fr;gap:.5em;font-size:clamp(13px,min(2cqw,3.6cqh),16px);line-height:1.45}
+  .rows dt{font-weight:800;color:var(--warm-d)}
+  .rows dd{color:var(--ink)}
+  .actions{display:flex;gap:8px;flex-wrap:wrap}
+  .foot{font-size:clamp(11px,min(1.6cqw,2.8cqh),13px);color:#9a8a80;line-height:1.45}
+</style>
+</head>
+<body>
+<div id="game">
+  <canvas id="c" role="img" aria-label="클로버 캐릭터가 달리며 장애물을 넘는 게임 화면"></canvas>
+
+  <!-- 시작 화면 -->
+  <section id="ovTitle" class="overlay" aria-labelledby="tTitle">
+    <p class="kicker">함께온기금 미니게임</p>
+    <h1 id="tTitle" class="f-xl">혼자선 못 넘는 벽</h1>
+    <p class="f-m">창업 준비는 끝났는데, 왜 못 넘을까?</p>
+    <p class="f-m"><span class="key">탭</span> 또는 <span class="key">스페이스바</span>로 점프!</p>
+    <button id="btnStart" class="btn primary" type="button">시작하기</button>
+    <p class="credit">2026 함께온기금 크루 · 프로토타입</p>
+  </section>
+
+  <!-- 실패 화면 -->
+  <section id="ovFail" class="overlay hidden" aria-live="polite" aria-labelledby="fTitle">
+    <p class="kicker red">준비는 끝났는데…</p>
+    <h2 id="fTitle" class="f-l">넘을 수 없었어요</h2>
+    <p class="f-m strong">실력이 부족해서가 아니에요.</p>
+    <p class="f-m">제도권 금융은 주로 <b>담보</b>와 <b>신용점수</b>를 보기 때문이에요.</p>
+    <button id="btnRetry" class="btn primary" type="button">다른 방법으로 다시 도전</button>
+  </section>
+
+  <!-- 결과 화면 -->
+  <section id="ovResult" class="overlay hidden" aria-live="polite" aria-labelledby="rTitle">
+    <div class="card">
+      <p class="kicker">빠밤! 이런 제도가 있어요</p>
+      <h2 id="rTitle" class="f-l">함께온기금 예비창업자금 대출</h2>
+      <p class="desc">점수 대신 <b>사연과 자립 의지</b>를 듣고, 창업자금을 빌려드려요.</p>
+      <dl class="rows">
+        <div><dt>대상</dt><dd>서울·경기 거주, 중위소득 100% 이하, 3개월 내 창업 예정이거나 창업 6개월 이내</dd></div>
+        <div><dt>조건</dt><dd>최대 3,000만 원 · <span id="rate">연 4% 이내</span> · 최대 5년</dd></div>
+        <div><dt>모집</dt><dd>상시 모집 (기금 소진 시까지)</dd></div>
+      </dl>
+      <div class="actions">
+        <a id="btnApply" class="btn primary" href="#" target="_blank" rel="noopener noreferrer">신청 안내 보러 가기 ↗</a>
+        <button id="btnAgain" class="btn ghost" type="button">다시 하기</button>
+      </div>
+      <p class="foot">대출은 사연심사와 상담을 거쳐 결정돼요. 자세한 조건은 공고에서 확인해 주세요.</p>
+    </div>
+  </section>
+</div>
+<noscript>이 게임은 자바스크립트가 필요해요.</noscript>
+
+<script>
+(() => {
+'use strict';
+
+/* ───────────── 설정 (여기만 고치면 됩니다) ───────────── */
+const CONFIG = {
+  applyUrl: 'https://www.bss.or.kr/business-apply/together-warmth-fund-startup-loan-recruit-2025/', // [확인 필요] 최종 신청 링크
+  speed: 300,          // 달리는 속도
+  gravity: 2400,
+  jumpV: 820,          // 최대 점프 높이 = jumpV² ÷ (2 × gravity) ≈ 140
+  wallH: 250,          // 벽 높이: 점프 최대 높이 + 캐릭터 키보다 훨씬 높게 → 절대 못 넘음
+  wallW: 116,
+  boostApex: 290,      // 함께온기금 발판을 밟고 올라가는 높이 (벽보다 높게)
+  stage1: ['창업 아이디어', '시장 검증', '수익모델 계산'],
+  stage2WallDelay: 3.4, // 2차 도전 시작 후 발판·벽이 나오기까지 (초). 화면에 벽이 보이는 건 약 4초 후
+  bannerTime: {         // 안내 문구가 떠 있는 시간 (초)
+    start: 3.2, ready: 3.0, wall: 3.4, retry: 3.4, clear: 3.8,
+  },
+};
+
+/* ───────────── 기본 세팅 ───────────── */
+const H = 450, GY = 400;            // 놀이 구역 높이, 땅 높이 (논리 좌표)
+const MIN_W = 420;                  // 세로 화면에서도 최소 이만큼 앞이 보이게
+let W = 800, VIEW_TOP = 0, VIEW_BOTTOM = H;
+const FF = '-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard","Noto Sans KR","Malgun Gothic",sans-serif';
+const font = (w, s) => `${w} ${s}px ${FF}`;
+
+const root = document.getElementById('game');
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const $ = id => document.getElementById(id);
+const ov = { title: $('ovTitle'), fail: $('ovFail'), result: $('ovResult') };
+const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+let embedded = false;
+try { embedded = window.self !== window.top; } catch (e) { embedded = true; }
+const phoneLike = window.matchMedia && matchMedia('(max-width: 820px), (pointer: coarse)').matches;
+if (embedded || phoneLike) document.body.classList.add('full');
+
+$('btnApply').href = CONFIG.applyUrl;
+
+function resize() {
+  const r = root.getBoundingClientRect();
+  if (!r.width || !r.height) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let scale, offY = 0;
+  if ((r.width / r.height) * H >= MIN_W) { scale = r.height / H; W = Math.round(r.width / scale); }
+  else { W = MIN_W; scale = r.width / W; offY = (r.height - H * scale) * 0.6; }   // 세로 화면: 놀이 구역을 가운데에, 위·아래는 하늘·땅으로 채움
+  canvas.width = Math.round(r.width * dpr);
+  canvas.height = Math.round(r.height * dpr);
+  ctx.setTransform(scale * dpr, 0, 0, scale * dpr, 0, offY * dpr);
+  VIEW_TOP = -offY / scale;
+  VIEW_BOTTOM = (r.height - offY) / scale;
+}
+new ResizeObserver(resize).observe(root);
+window.addEventListener('orientationchange', () => setTimeout(resize, 200));
+resize();
+
+const rand = (a, b) => a + Math.random() * (b - a);
+const mod = (a, n) => ((a % n) + n) % n;
+
+function rr(c, x, y, w, h, r) {
+  c.beginPath();
+  if (c.roundRect) { c.roundRect(x, y, w, h, r); return; }
+  r = Math.min(r, w / 2, h / 2);
+  c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+}
+function circle(x, y, r, c = ctx) { c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill(); }
+function heartShape(x, y, s) {
+  ctx.beginPath();
+  ctx.moveTo(x, y + s * 0.3);
+  ctx.bezierCurveTo(x, y, x - s * 0.5, y, x - s * 0.5, y + s * 0.3);
+  ctx.bezierCurveTo(x - s * 0.5, y + s * 0.6, x, y + s * 0.8, x, y + s);
+  ctx.bezierCurveTo(x, y + s * 0.8, x + s * 0.5, y + s * 0.6, x + s * 0.5, y + s * 0.3);
+  ctx.bezierCurveTo(x + s * 0.5, y, x, y, x, y + s * 0.3);
+  ctx.fill();
+}
+
+/* ───────────── 클로버 캐릭터 (펠트 질감 몸통을 미리 그려둠) ───────────── */
+const LOBES = [ [-11, -11, 13], [11, -11, 13], [-17, 3, 11], [17, 3, 11], [0, 9, 16], [0, -1, 15] ];
+const BODY = (() => {
+  const S = 4, BW = 72, BH = 64, cx = BW / 2, cy = 32;        // 몸통 이미지 크기(논리 단위), 중심
+  const c = document.createElement('canvas'); c.width = BW * S; c.height = BH * S;
+  const g = c.getContext('2d'); g.scale(S, S); g.translate(cx, cy);
+  const inside = (x, y, pad = 0) => LOBES.some(([lx, ly, lr]) => Math.hypot(x - lx, y - ly) < lr - pad);
+  // 바탕
+  g.fillStyle = '#6ABF4B';
+  for (const [x, y, r] of LOBES) circle(x, y, r, g);
+  // 펠트 털 (몸통 위에만)
+  g.globalCompositeOperation = 'source-atop';
+  for (let i = 0; i < 900; i++) {
+    const x = rand(-30, 30), y = rand(-26, 26);
+    g.strokeStyle = Math.random() < .5 ? 'rgba(160,220,120,.28)' : 'rgba(70,150,55,.22)';
+    g.lineWidth = rand(.2, .45);
+    const a = rand(0, Math.PI * 2), l = rand(.8, 2.2);
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke();
+  }
+  // 입체감
+  const lg = g.createRadialGradient(-9, -16, 2, 0, 0, 34);
+  lg.addColorStop(0, 'rgba(255,255,255,.26)'); lg.addColorStop(.5, 'rgba(255,255,255,0)'); lg.addColorStop(1, 'rgba(20,70,10,.32)');
+  g.fillStyle = lg; g.fillRect(-36, -32, 72, 64);
+  // 보송한 가장자리
+  g.globalCompositeOperation = 'source-over';
+  for (const [lx, ly, lr] of LOBES) {
+    for (let k = 0; k < 60; k++) {
+      const a = rand(0, Math.PI * 2), px = lx + Math.cos(a) * lr, py = ly + Math.sin(a) * lr;
+      if (inside(px, py, 0.6)) continue;
+      const o = rand(-.3, .8);
+      g.fillStyle = Math.random() < .5 ? 'rgba(120,195,90,.55)' : 'rgba(95,170,70,.45)';
+      circle(lx + Math.cos(a) * (lr + o), ly + Math.sin(a) * (lr + o), rand(.3, .6), g);
+    }
+  }
+  return { img: c, w: BW, h: BH, cx, cy };
+})();
+
+function drawGlove(x, y, rot) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
+  ctx.fillStyle = '#FBFBF8'; ctx.strokeStyle = 'rgba(0,0,0,.14)'; ctx.lineWidth = .8;
+  // 손가락 3개 + 엄지
+  for (const [fx, fy, fr] of [[-2.6, -4.6, 1.9], [0, -5.4, 2], [2.6, -4.6, 1.9], [4.4, -.6, 1.7]]) {
+    ctx.beginPath(); ctx.arc(fx, fy, fr, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  }
+  ctx.beginPath(); ctx.arc(0, -1, 4.4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  rr(ctx, -3.4, 2, 6.8, 3, 1.5); ctx.fill(); ctx.stroke();   // 소매
+  ctx.restore();
+}
+
+/* 배경 건물 미리 생성 */
+function genLayer(minW, maxW, minH, maxH) {
+  const arr = []; let x = 0;
+  while (x < 1800) { const w = rand(minW, maxW); arr.push({ x, w, h: rand(minH, maxH) }); x += w + rand(6, 24); }
+  return { arr, total: x };
+}
+const far = genLayer(50, 100, 70, 170);
+const near = genLayer(60, 120, 50, 120);
+const clouds = [{ x: 80, y: 70, s: 1 }, { x: 360, y: 118, s: .8 }, { x: 620, y: 62, s: 1.15 }, { x: 900, y: 105, s: .9 },
+                { x: 200, y: -60, s: 1 }, { x: 520, y: -140, s: .85 }, { x: 760, y: -40, s: 1.1 }];
+
+/* ───────────── 상태 ───────────── */
+const CHAR_S = 1.22;   // 캐릭터 크기 배율
+const P = { x: 90, y: GY, w: 56, h: 64, vy: 0, vx: 0, onGround: true, rot: 0, boost: false, bg: 0, stumble: 0, crashed: false, anim: 0 };
+const MAX_JUMP = CONFIG.jumpV ** 2 / (2 * CONFIG.gravity);
+if (MAX_JUMP + P.h >= CONFIG.wallH) console.warn('벽이 점프로 넘을 수 있는 높이입니다. wallH를 올리세요.');
+
+let phase = 'title', phaseT = 0;
+let objs = [], parts = [], floats = [], banner = null;
+let scroll = 0, worldSpeed = 110, shake = 0, jumpBuf = 0;
+let spawnQ = [], spawnT = 0, spawnIdx = 0, passed = 0, finalSpawned = false, shownPct = 0;
+let paused = false, usedKeyboard = false;
+
+const PLAYABLE = ['run1', 'ready', 'wall', 'run2'];
+const BT = CONFIG.bannerTime;
+
+function setPhase(p) { phase = p; phaseT = 0; }
+function setBanner(text, sub, life) { banner = { text, sub, life, t: 0 }; }
+function floatText(text, x, y, color) { floats.push({ text, x, y, color, t: 0, life: 1.4 }); }
+function track(ev) {
+  // 기관 사이트에서 통계를 붙이고 싶을 때 사용 (부모 페이지로 이벤트만 전달, 개인정보 없음)
+  try { if (window.parent !== window) window.parent.postMessage({ source: 'hwf-minigame', event: ev }, '*'); } catch (e) {}
+}
+
+function show(o) {
+  Object.values(ov).forEach(x => x.classList.toggle('hidden', x !== o));
+  if (o) { const b = o.querySelector('.btn'); if (b && usedKeyboard) setTimeout(() => b.focus({ preventScroll: true }), 260); }
+  else if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+}
+
+function resetPlayer() {
+  Object.assign(P, { x: 90, y: GY, vy: 0, vx: 0, onGround: true, rot: 0, boost: false, bg: 0, stumble: 0, crashed: false });
+}
+
+function startStage1() {
+  resetPlayer(); objs = []; parts = []; floats = [];
+  spawnQ = [...CONFIG.stage1]; spawnT = 1.2; spawnIdx = 0; passed = 0; shownPct = 0;
+  worldSpeed = CONFIG.speed; setPhase('run1');
+  setBanner('창업 준비 시작!', '작은 장애물은 점프로 넘어요', BT.start);
+  show(null); track('start');
+}
+
+function startStage2() {
+  resetPlayer(); objs = []; parts = []; floats = [];
+  finalSpawned = false;
+  worldSpeed = CONFIG.speed; setPhase('run2');
+  setBanner('이번엔 함께온기금과 함께!', '점수 대신 이야기를 들어주는 금융이 있어요', BT.retry);
+  show(null); track('retry');
+}
+
+const BOX_COLORS = ['#8EA4BC', '#9C9FD3', '#86B5A2', '#B9A08C'];
+function spawnBox(label, i) {
+  ctx.font = font(800, 15);
+  const w = Math.max(56, Math.ceil(ctx.measureText(label).width) + 24);
+  objs.push({ type: 'box', x: W + 20, w, h: rand(36, 46), label, color: BOX_COLORS[i % BOX_COLORS.length],
+    hit: false, passed: false, fx: 0, fy: 0, fvx: 0, fvy: 0, frot: 0 });
+}
+function makeWall(x) { return { type: 'wall', x, w: CONFIG.wallW, h: CONFIG.wallH }; }
+
+function hitRect(o, top) {
+  const px1 = P.x + 8, px2 = P.x + P.w - 8, py1 = P.y - P.h + 6, py2 = P.y;
+  return px2 > o.x && px1 < o.x + o.w && py2 > top && py1 < GY;
+}
+
+function countPassed() {
+  for (const o of objs) {
+    if (o.type === 'box' && !o.passed && (o.hit || o.x + o.w < P.x)) { o.passed = true; passed++; }
+  }
+}
+
+function bump(o) {
+  o.hit = true; o.fvx = 320; o.fvy = -520;
+  P.stumble = 0.5; shake = Math.max(shake, 5);
+  floatText('괜찮아요, 계속 달려요!', P.x + 40, P.y - 90, '#E35F2C');
+}
+
+function crash(w) {
+  setPhase('crash'); worldSpeed = 0;
+  P.crashed = true; P.vx = -170; P.vy = -460; P.onGround = false;
+  P.x = Math.min(P.x, w.x - P.w + 6);
+  shake = 14;
+  floatText('쿵!', P.x + P.w / 2, P.y - P.h - 34, '#E5484D');
+  dust(P.x + P.w, GY, 10);
+}
+
+function boostFrom(s) {
+  s.used = true; s.comp = 1;
+  setPhase('boost');
+  const wall = objs.find(o => o.type === 'wall');
+  const h0 = GY - P.y;
+  // 벽 한가운데에서 가장 높이 뜨도록 속도·중력을 맞춤
+  const T = Math.max(0.5, ((wall.x + wall.w / 2) - (P.x + P.w / 2)) / worldSpeed);
+  const R = Math.max(60, CONFIG.boostApex - h0);
+  P.vy = -2 * R / T; P.bg = 2 * R / (T * T); P.boost = true; P.onGround = false;
+  for (let i = 0; i < 10; i++) parts.push({ type: 'heart', x: s.x + s.w / 2 + rand(-30, 30), y: GY - 20, vx: rand(-60, 60), vy: rand(-260, -120), life: 1.1, max: 1.1 });
+  floatText('사연을 들어줬어요!', P.x + P.w / 2, GY - 175, '#E35F2C');
+}
+
+function landedAfterBoost() {
+  setPhase('clear');
+  dust(P.x + P.w / 2, GY, 8);
+  confetti(reduceMotion ? 25 : 80);
+  setBanner('넘었어요!', '점수 대신 이야기를 들어준 금융, 함께온기금', BT.clear);
+}
+
+function dust(x, y, n) {
+  for (let i = 0; i < n; i++) parts.push({ type: 'dust', x: x + rand(-10, 10), y: y - rand(0, 6), vx: rand(-80, 40), vy: rand(-60, -10), r: rand(3, 6), life: .5, max: .5, scroll: true });
+}
+function confetti(n) {
+  const cols = ['#FF7A45', '#FFC24B', '#6CC6A8', '#7A9CFF', '#FF6B8A', '#62B947'];
+  for (let i = 0; i < n; i++) parts.push({ type: 'conf', x: rand(0, W), y: rand(VIEW_TOP - 60, VIEW_TOP - 5), vx: rand(-50, 50), vy: rand(140, 280), rot: rand(0, 6), vr: rand(-8, 8), c: cols[i % cols.length], life: 4, max: 4 });
+}
+
+/* ───────────── 입력 ───────────── */
+function onJump() { if (PLAYABLE.includes(phase)) jumpBuf = 0.14; }
+canvas.addEventListener('pointerdown', e => { e.preventDefault(); onJump(); });
+window.addEventListener('pointerdown', () => { usedKeyboard = false; }, true);
+window.addEventListener('keydown', e => {
+  usedKeyboard = true;
+  if ((e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') && PLAYABLE.includes(phase)) { e.preventDefault(); onJump(); }
+});
+$('btnStart').addEventListener('click', startStage1);
+$('btnRetry').addEventListener('click', startStage2);
+$('btnAgain').addEventListener('click', startStage1);
+$('btnApply').addEventListener('click', () => track('apply_click'));
+document.addEventListener('visibilitychange', () => { paused = document.hidden; last = performance.now(); });
+
+/* ───────────── 업데이트 ───────────── */
+function update(dt) {
+  phaseT += dt;
+  if (jumpBuf > 0) jumpBuf -= dt;
+
+  scroll += worldSpeed * dt;
+  for (const o of objs) {
+    o.x -= worldSpeed * dt;
+    if (o.type === 'box' && o.hit) { o.fvy += 1800 * dt; o.fx += o.fvx * dt; o.fy += o.fvy * dt; o.frot += 6 * dt; }
+    if (o.type === 'spring' && o.comp > 0) o.comp = Math.max(0, o.comp - dt * 3);
+  }
+  objs = objs.filter(o => o.x + o.w > -300 && !(o.type === 'box' && o.fy > 400));
+
+  switch (phase) {
+    case 'title': worldSpeed = 110; break;
+
+    case 'run1':
+      spawnT -= dt;
+      if (spawnT <= 0 && spawnQ.length) { spawnBox(spawnQ.shift(), spawnIdx++); spawnT = rand(1.3, 1.6); }
+      countPassed();
+      if (!spawnQ.length && objs.every(o => o.type !== 'box' || o.passed)) {
+        setPhase('ready'); setBanner('창업 준비 100% 완료!', '이제 창업자금만 있으면 돼요', BT.ready);
+      }
+      break;
+
+    case 'ready':
+      if (phaseT > BT.ready) { objs.push(makeWall(W + 30)); setPhase('wall'); setBanner('마지막 관문: 창업자금 대출', '', BT.wall); }
+      break;
+
+    case 'wall': {
+      const w = objs.find(o => o.type === 'wall');
+      if (w && hitRect(w, GY - w.h)) crash(w);
+      break;
+    }
+
+    case 'crash':
+      if (P.onGround && phaseT > 1.4) { setPhase('fail'); show(ov.fail); track('fail'); }
+      break;
+
+    case 'run2': {
+      if (!finalSpawned && phaseT > CONFIG.stage2WallDelay) {
+        finalSpawned = true;
+        const sx = W + 30;
+        objs.push({ type: 'spring', x: sx, w: 90, used: false, comp: 0 });
+        objs.push(makeWall(sx + 180));
+      }
+      const s = objs.find(o => o.type === 'spring');
+      if (s && !s.used && s.x <= P.x + P.w - 4 && s.x + s.w >= P.x + 4) boostFrom(s);
+      break;
+    }
+
+    case 'clear':
+      if (phaseT > 1.4) worldSpeed = Math.max(0, worldSpeed - 240 * dt);
+      if (phaseT > BT.clear + 0.2) { setPhase('result'); show(ov.result); track('clear'); }
+      break;
+
+    case 'fail': case 'result':
+      worldSpeed = Math.max(0, worldSpeed - 400 * dt);
+      break;
+  }
+
+  if (phase === 'run1' || phase === 'ready' || phase === 'wall' || phase === 'run2') {
+    for (const o of objs) if (o.type === 'box' && !o.hit && !o.passed && hitRect(o, GY - o.h)) bump(o);
+  }
+
+  updatePlayer(dt);
+
+  for (const p of parts) {
+    p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt;
+    if (p.type === 'conf') p.rot += p.vr * dt;
+    if (p.type === 'heart') p.vy += 200 * dt;
+    if (p.scroll) p.x -= worldSpeed * dt;
+  }
+  parts = parts.filter(p => p.life > 0 && p.y < VIEW_BOTTOM + 40);
+  for (const f of floats) { f.t += dt; f.y -= 34 * dt; }
+  floats = floats.filter(f => f.t < f.life);
+  if (banner) { banner.t += dt; if (banner.t > banner.life) banner = null; }
+  shake = Math.max(0, shake - 30 * dt);
+
+  const target = phase === 'run1' ? passed / CONFIG.stage1.length : 1;
+  shownPct += (target - shownPct) * Math.min(1, dt * 6);
+}
+
+function updatePlayer(dt) {
+  P.anim += dt;
+  if (P.stumble > 0) P.stumble -= dt;
+  if (PLAYABLE.includes(phase) && jumpBuf > 0 && P.onGround) { P.vy = -CONFIG.jumpV; P.onGround = false; jumpBuf = 0; }
+
+  if (!P.onGround) {
+    P.vy += (P.boost ? P.bg : CONFIG.gravity) * dt;
+    P.y += P.vy * dt;
+    if (P.boost && Math.random() < dt * 18) parts.push({ type: 'heart', x: P.x + rand(0, P.w), y: P.y, vx: rand(-40, 40), vy: rand(20, 80), life: .9, max: .9 });
+  }
+  if (P.crashed) {
+    P.x += P.vx * dt; P.vx *= Math.max(0, 1 - 2.5 * dt);
+    P.rot = P.onGround ? Math.max(-1.45, P.rot - 3 * dt) : Math.max(-1.45, P.rot - 6 * dt);
+  }
+  if (!P.onGround && P.y >= GY) {
+    const fast = P.vy > 300;
+    P.y = GY; P.vy = 0; P.onGround = true;
+    if (fast && !P.boost) dust(P.x + P.w / 2, GY, 5);
+    if (P.boost) { P.boost = false; landedAfterBoost(); }
+  }
+}
+
+/* ───────────── 그리기 ───────────── */
+function draw() {
+  ctx.save();
+  ctx.clearRect(-20, VIEW_TOP - 20, W + 40, VIEW_BOTTOM - VIEW_TOP + 40);
+  if (shake > 0 && !reduceMotion) ctx.translate(rand(-shake, shake) * .6, rand(-shake, shake) * .6);
+  drawBG(); drawGround();
+  for (const o of objs) { if (o.type === 'box') drawBox(o); else if (o.type === 'spring') drawSpring(o); }
+  for (const o of objs) if (o.type === 'wall') drawWall(o);
+  drawPlayer();
+  drawParts(); drawFloats();
+  ctx.restore();
+  drawBanner(); drawHUD();
+}
+
+function drawBG() {
+  const top = VIEW_TOP - 20;
+  const g = ctx.createLinearGradient(0, Math.min(0, top), 0, GY);
+  g.addColorStop(0, '#FFDCC2'); g.addColorStop(1, '#FFF4EA');
+  ctx.fillStyle = g; ctx.fillRect(-20, top, W + 40, GY - top);
+  ctx.fillStyle = 'rgba(255,186,140,.45)'; circle(W * .82, 86, 42);
+  ctx.fillStyle = '#FFC39B'; circle(W * .82, 86, 28);
+  ctx.fillStyle = 'rgba(255,255,255,.85)';
+  for (const c of clouds) {
+    if (c.y < VIEW_TOP - 40) continue;
+    const x = mod(c.x - scroll * .06, W + 240) - 120;
+    circle(x, c.y, 16 * c.s); circle(x + 18 * c.s, c.y - 8 * c.s, 20 * c.s); circle(x + 40 * c.s, c.y, 16 * c.s);
+    ctx.fillRect(x, c.y, 40 * c.s, 16 * c.s);
+  }
+  drawLayer(far, .15, '#F5D5C1', false);
+  drawLayer(near, .38, '#EEC3AB', true);
+}
+function drawLayer(L, f, color, win) {
+  const off = mod(scroll * f, L.total);
+  for (let k = 0; k < 2; k++) {
+    for (const b of L.arr) {
+      const x = b.x - off + k * L.total;
+      if (x > W || x + b.w < 0) continue;
+      ctx.fillStyle = color; ctx.fillRect(x, GY - b.h, b.w, b.h);
+      if (win) {
+        ctx.fillStyle = 'rgba(255,244,234,.75)';
+        for (let wy = GY - b.h + 12; wy < GY - 22; wy += 22)
+          for (let wx = x + 10; wx < x + b.w - 14; wx += 20) ctx.fillRect(wx, wy, 9, 11);
+      }
+    }
+  }
+}
+function drawGround() {
+  const bottom = VIEW_BOTTOM + 20;
+  ctx.fillStyle = '#EED6C4'; ctx.fillRect(-20, GY, W + 40, bottom - GY);
+  ctx.fillStyle = '#CFA083'; ctx.fillRect(-20, GY, W + 40, 4);
+  ctx.fillStyle = '#E2C1AB';
+  const off = mod(scroll, 70);
+  for (let x = -off; x < W + 70; x += 70) ctx.fillRect(x, GY + 22, 34, 5);
+}
+
+function drawBox(o) {
+  if (!o.hit) { ctx.fillStyle = 'rgba(80,40,20,.12)'; ctx.beginPath(); ctx.ellipse(o.x + o.w / 2, GY + 3, o.w / 2, 4, 0, 0, Math.PI * 2); ctx.fill(); }
+  ctx.save();
+  ctx.translate(o.x + o.fx + o.w / 2, GY - o.h / 2 + o.fy);
+  ctx.rotate(o.frot);
+  ctx.fillStyle = o.color; rr(ctx, -o.w / 2, -o.h / 2, o.w, o.h, 8); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,.2)'; rr(ctx, -o.w / 2, -o.h / 2, o.w, o.h * .42, 8); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.font = font(800, 15); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(o.label, 0, 1);
+  ctx.restore();
+}
+
+function drawWall(o) {
+  const x = o.x, top = GY - o.h;
+  ctx.fillStyle = 'rgba(60,40,30,.12)'; ctx.fillRect(x + 10, top + 10, o.w, o.h - 10);
+  ctx.fillStyle = '#A9AEB6'; ctx.fillRect(x, top, o.w, o.h);
+  ctx.strokeStyle = '#90959D'; ctx.lineWidth = 2;
+  for (let r = 0, y = top; y < GY; r++, y += 22) {
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + o.w, y); ctx.stroke();
+    for (let bx = x + (r % 2) * 18 + 18; bx < x + o.w; bx += 36) {
+      ctx.beginPath(); ctx.moveTo(bx, y); ctx.lineTo(bx, Math.min(y + 22, GY)); ctx.stroke();
+    }
+  }
+  ctx.fillStyle = '#7F848C'; ctx.fillRect(x - 6, top - 10, o.w + 12, 12);
+  const sy = top + 70;
+  rr(ctx, x + 6, sy, o.w - 12, 70, 10); ctx.fillStyle = '#E5484D'; ctx.fill();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.stroke();
+  ctx.fillStyle = '#fff'; ctx.font = font(800, 15); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('담보 없음', x + o.w / 2, sy + 23);
+  ctx.fillText('신용점수 부족', x + o.w / 2, sy + 48);
+}
+
+function drawSpring(o) {
+  const x = o.x, plateY = GY - 28 + o.comp * 14;
+  ctx.strokeStyle = '#C27A57'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(x + o.w / 2, GY - 30); ctx.lineTo(x + o.w / 2, GY - 92); ctx.stroke();
+  ctx.font = font(800, 14);
+  const label = '함께온기금 발판', tw = ctx.measureText(label).width + 22;
+  rr(ctx, x + o.w / 2 - tw / 2, GY - 122, tw, 30, 9); ctx.fillStyle = '#fff'; ctx.fill();
+  ctx.strokeStyle = '#FF7A45'; ctx.lineWidth = 2.5; ctx.stroke();
+  ctx.fillStyle = '#E35F2C'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(label, x + o.w / 2, GY - 106);
+  if (!o.used) {
+    const by = GY - 140 + Math.sin(performance.now() / 180) * 4;
+    ctx.fillStyle = '#FF7A45'; ctx.beginPath();
+    ctx.moveTo(x + o.w / 2 - 8, by - 8); ctx.lineTo(x + o.w / 2 + 8, by - 8); ctx.lineTo(x + o.w / 2, by + 2); ctx.closePath(); ctx.fill();
+  }
+  ctx.strokeStyle = '#B85A33'; ctx.lineWidth = 4; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  const n = 4, y0 = GY - 10, y1 = plateY + 6;
+  ctx.moveTo(x + 14, y0);
+  for (let i = 1; i <= n * 2; i++) ctx.lineTo(i % 2 ? x + o.w - 14 : x + 14, y0 + (y1 - y0) * i / (n * 2));
+  ctx.stroke();
+  ctx.fillStyle = '#C9653B'; rr(ctx, x, GY - 10, o.w, 10, 4); ctx.fill();
+  ctx.fillStyle = '#FF7A45'; rr(ctx, x - 4, plateY - 6, o.w + 8, 12, 6); ctx.fill();
+  ctx.fillStyle = '#fff'; heartShape(x + o.w / 2, plateY - 5, 9);
+}
+
+function drawPlayer() {
+  const hgt = GY - P.y;
+  ctx.fillStyle = 'rgba(80,40,20,.15)';
+  ctx.beginPath(); ctx.ellipse(P.x + P.w / 2, GY + 3, Math.max(9, 23 - hgt * .04), 4.5, 0, 0, Math.PI * 2); ctx.fill();
+
+  ctx.save();
+  if (P.stumble > 0 && Math.floor(P.stumble * 20) % 2 === 0) ctx.globalAlpha = .45;
+  const running = P.onGround && worldSpeed > 1 && !P.crashed;
+  const air = !P.onGround && !P.crashed;
+  const s = running ? Math.sin(P.anim * 16) : 0;
+  const bob = running ? -Math.abs(s) * 2.2 : 0;
+  ctx.translate(P.x + P.w / 2, P.y - P.h / 2 + bob);
+  ctx.rotate(P.rot + (running ? s * 0.04 : 0) + (air ? -0.06 : 0));
+  ctx.scale(CHAR_S, CHAR_S);
+
+  // 발 (초록 펠트)
+  ctx.fillStyle = '#4E9E3A';
+  if (air) { ctx.beginPath(); ctx.ellipse(-8, 24, 5.5, 4, -.4, 0, Math.PI * 2); ctx.fill(); ctx.beginPath(); ctx.ellipse(8, 23, 5.5, 4, .4, 0, Math.PI * 2); ctx.fill(); }
+  else {
+    ctx.beginPath(); ctx.ellipse(-8 + s * 4, 25 - Math.max(0, s) * 3, 6, 4, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(8 - s * 4, 25 - Math.max(0, -s) * 3, 6, 4, 0, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // 팔 + 장갑 위치
+  let L, R;
+  if (P.crashed)           { L = [-29, -8, -.9];  R = [29, -8, .9]; }
+  else if (air || P.boost) { L = [-29, -16, -.5]; R = [29, -16, .5]; }        // 만세
+  else                     { L = [-28, 6 + s * 4, -1.3]; R = [28, 6 - s * 4, 1.3]; }
+  ctx.strokeStyle = '#5DAF43'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-22, 4); ctx.lineTo(L[0] + 2, L[1] + 2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(22, 4); ctx.lineTo(R[0] - 2, R[1] + 2); ctx.stroke();
+
+  // 몸통 (펠트)
+  ctx.drawImage(BODY.img, -BODY.cx, -BODY.cy, BODY.w, BODY.h);
+
+  // 얼굴
+  const fy = 0;
+  ctx.fillStyle = 'rgba(205,140,80,.55)'; circle(-12, fy + 6, 3.6); circle(12, fy + 6, 3.6);   // 볼터치
+  ctx.strokeStyle = '#1E1E1E'; ctx.fillStyle = '#141414'; ctx.lineWidth = 1.4; ctx.lineCap = 'round';
+  const line = (x1, y1, x2, y2) => { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); };
+  if (P.crashed) {
+    line(-8.5, fy - 3, -4.5, fy + 1); line(-4.5, fy - 3, -8.5, fy + 1);
+    line(4.5, fy - 3, 8.5, fy + 1);   line(8.5, fy - 3, 4.5, fy + 1);
+    ctx.beginPath(); ctx.ellipse(0, fy + 8, 2.4, 2.8, 0, 0, Math.PI * 2); ctx.fillStyle = '#2B1A1A'; ctx.fill();
+  } else {
+    // 눈썹
+    ctx.beginPath(); ctx.arc(-6.5, fy - 2, 4, 1.15 * Math.PI, 1.75 * Math.PI); ctx.stroke();
+    ctx.beginPath(); ctx.arc(6.5, fy - 2, 4, 1.25 * Math.PI, 1.85 * Math.PI); ctx.stroke();
+    // 구슬 눈
+    circle(-6.5, fy + 1.5, 2.5); circle(6.5, fy + 1.5, 2.5);
+    ctx.fillStyle = 'rgba(255,255,255,.9)'; circle(-5.7, fy + .7, .8); circle(7.3, fy + .7, .8);
+    // 벌린 입 + 혀
+    ctx.fillStyle = '#2B1A1A';
+    ctx.beginPath(); ctx.moveTo(-5, fy + 6); ctx.quadraticCurveTo(0, fy + 7, 5, fy + 6); ctx.quadraticCurveTo(4, fy + 12.5, 0, fy + 12.5); ctx.quadraticCurveTo(-4, fy + 12.5, -5, fy + 6); ctx.fill();
+    ctx.fillStyle = '#F28BA0'; ctx.beginPath(); ctx.ellipse(0, fy + 11, 2.8, 1.6, 0, 0, Math.PI * 2); ctx.fill();
+  }
+
+  drawGlove(L[0], L[1], L[2]);
+  drawGlove(R[0], R[1], R[2]);
+  ctx.restore();
+}
+
+function drawParts() {
+  for (const p of parts) {
+    const a = Math.max(0, Math.min(1, p.life / p.max * 1.5));
+    ctx.globalAlpha = a;
+    if (p.type === 'conf') {
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.fillStyle = p.c; ctx.fillRect(-3, -5, 6, 10); ctx.restore();
+    } else if (p.type === 'heart') {
+      ctx.fillStyle = '#FF6B6B'; heartShape(p.x, p.y, 11);
+    } else {
+      ctx.fillStyle = 'rgba(170,130,105,.6)'; circle(p.x, p.y, p.r * (1.6 - p.life / p.max * .6));
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawFloats() {
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = font(800, 17); ctx.lineJoin = 'round';
+  for (const f of floats) {
+    ctx.globalAlpha = Math.max(0, Math.min(1, (f.life - f.t) / .4));
+    const x = Math.min(Math.max(f.x, 100), W - 100);
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 5; ctx.strokeText(f.text, x, f.y);
+    ctx.fillStyle = f.color; ctx.fillText(f.text, x, f.y);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawBanner() {
+  if (!banner) return;
+  const a = Math.max(0, Math.min(1, banner.t / .25, (banner.life - banner.t) / .4));
+  ctx.globalAlpha = a;
+  ctx.font = font(800, 23); const tw = ctx.measureText(banner.text).width;
+  ctx.font = font(700, 14.5); const sw = banner.sub ? ctx.measureText(banner.sub).width : 0;
+  const bw = Math.min(W - 20, Math.max(tw, sw) + 48), bh = banner.sub ? 70 : 48;
+  const bx = (W - bw) / 2, by = 58 + (1 - Math.min(1, banner.t / .25)) * -8;
+  ctx.fillStyle = 'rgba(43,43,51,.9)'; rr(ctx, bx, by, bw, bh, 16); ctx.fill();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#fff'; ctx.font = font(800, 23); ctx.fillText(banner.text, W / 2, by + (banner.sub ? 26 : 24));
+  if (banner.sub) { ctx.fillStyle = '#FFD2B8'; ctx.font = font(700, 14.5); ctx.fillText(banner.sub, W / 2, by + 52); }
+  ctx.globalAlpha = 1;
+}
+
+function drawHUD() {
+  if (phase === 'title' || phase === 'result') return;
+  const y0 = VIEW_TOP < 0 ? VIEW_TOP + 8 : 0;   // 세로 화면이면 화면 맨 위에
+  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'left'; ctx.fillStyle = '#8A5A44'; ctx.font = font(800, 12);
+  ctx.fillText('창업 준비도', 18, y0 + 26);
+  ctx.fillStyle = '#F3DCCB'; rr(ctx, 18, y0 + 33, 140, 10, 5); ctx.fill();
+  ctx.fillStyle = '#FF7A45'; rr(ctx, 18, y0 + 33, Math.max(10, 140 * shownPct), 10, 5); ctx.fill();
+  ctx.fillStyle = '#8A5A44'; ctx.fillText(Math.round(shownPct * 100) + '%', 166, y0 + 43);
+  ctx.textAlign = 'right';
+  const stage2 = ['run2', 'boost', 'clear'].includes(phase);
+  ctx.fillStyle = stage2 ? '#E35F2C' : '#8A5A44';
+  ctx.fillText(stage2 ? '2차 도전 · 함께온기금과 함께' : '1차 도전 · 혼자서', W - 18, y0 + 26);
+}
+
+/* ───────────── 루프 ───────────── */
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.033, (now - last) / 1000); last = now;
+  if (!paused) update(dt);
+  draw();
+  requestAnimationFrame(frame);
+}
+show(ov.title);
+requestAnimationFrame(frame);
+
+// 테스트용 (사이트에 넣을 때 지워도 됩니다)
+window.__hwf = { get phase() { return phase; }, P, objs: () => objs, start: startStage1, retry: startStage2, jump: onJump, MAX_JUMP };
+})();
+</script>
+</body>
+</html>
